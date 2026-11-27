@@ -1,11 +1,12 @@
 {
-    "display_name": "我的API切换器",
-    "loading_order": 10,
+    "display_name": "API Switcher",
+    "loading_order": 100,
     "requires": [],
     "optional": [],
     "js": "index.js",
     "css": "style.css",
     "author": "N0N3SENSE",
-    "version": "1.0.0",
-    "homePage": "https://github.com/N0N3SENSE/my-api-switcher"
+    "version": "1.1.0",
+    "homePage": "https://github.com/N0N3SENSE/my-api-switcher",
+    "auto_update": true
 }
