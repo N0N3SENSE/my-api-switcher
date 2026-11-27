@@ -10,13 +10,12 @@ try {
 } catch (e) { /* 旧版没有就算了 */ }
 
 const MODULE = 'my_api_switcher';
-const TITLE = 'API切换器';
+const TITLE = 'API Switcher';
 const REPO = 'N0N3SENSE/my-api-switcher';
 const FOLDER = new URL(import.meta.url).pathname.split('/').slice(-2, -1)[0];
 
 let editingId = null;
 let fetchKeyCache = { value: '', id: null };
-let topBannerTimer = null;
 let currentVersion = '';
 let updateState = { checked: false, hasUpdate: false, remote: '', local: '' };
 let drawerView = 'main'; // 'main' | 'form' | 'settings'
@@ -43,19 +42,6 @@ function uid() {
 
 function getFirstChar(name) {
     return (Array.from((name || '').trim())[0] || '?').toUpperCase();
-}
-
-// ---------- 顶部提示条 ----------
-function showTopBanner(message) {
-    let banner = $('#asw-top-banner');
-    if (!banner.length) {
-        banner = $('<div id="asw-top-banner" role="status" aria-live="polite"></div>').appendTo('body');
-    }
-    clearTimeout(topBannerTimer);
-    banner.text(message).removeClass('asw-banner-hide').addClass('asw-banner-show');
-    topBannerTimer = setTimeout(() => {
-        banner.removeClass('asw-banner-show').addClass('asw-banner-hide');
-    }, 3000);
 }
 
 // ---------- 密钥 ----------
@@ -88,10 +74,30 @@ function setModel(model) {
     }
 }
 
+async function verifyModelConnection(cfg) {
+    if (!cfg.url) return;
+    const res = await fetch('/api/backends/chat-completions/status', {
+        method: 'POST',
+        headers: getRequestHeaders(),
+        body: JSON.stringify({
+            chat_completion_source: 'custom',
+            custom_url: cfg.url,
+            reverse_proxy: '',
+            proxy_password: '',
+        }),
+        cache: 'no-cache',
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (data.error) {
+        throw new Error(typeof data.error === 'string' ? data.error : (data.error.message || 'Model connection failed'));
+    }
+}
+
 async function applyConfig(cfg, quiet) {
     try {
         if (!$('#api_button_openai').length || !$('#chat_completion_source').length) {
-            throw new Error('没找到API连接界面');
+            throw new Error('API connection UI not found');
         }
         $('#chat_completion_source').val('custom').trigger('change');
         oai_settings.chat_completion_source = 'custom';
@@ -113,38 +119,44 @@ async function applyConfig(cfg, quiet) {
         }
 
         if (!quiet) {
-            toastr.success(`正在连接: ${cfg.name}`, TITLE);
-            const appliedLabel = cfg.model ? `应用模型成功：${cfg.model}` : `应用配置成功：${cfg.name}`;
-            showTopBanner(appliedLabel);
+            toastr.success(`Connecting: ${cfg.name}`, TITLE);
+            const appliedLabel = cfg.model ? `Model applied: ${cfg.model}` : `Config applied: ${cfg.name}`;
+            toastr.success(appliedLabel, TITLE);
+
+            try {
+                await verifyModelConnection(cfg);
+            } catch (connErr) {
+                toastr.error(`Model connection failed: ${connErr.message}`, TITLE);
+            }
         }
         renderList();
         renderDrawer();
         updateBallLabel();
     } catch (e) {
-        console.error('[ASW] 应用失败', e);
-        toastr.error(`应用失败: ${e.message}`, TITLE);
+        console.error('[ASW] Apply failed', e);
+        toastr.error(`Model connection failed: ${e.message}`, TITLE);
     }
 }
 
 // ---------- 获取模型 ----------
 function resetModelSelect() {
-    $('#asw-model-select').empty().append($('<option>').val('').text('选择模型（先点获取模型）'));
+    $('#asw-model-select').empty().append($('<option>').val('').text('Select model (fetch models first)'));
 }
 
 async function fetchModels() {
     const url = $('#asw-url').val().trim();
     const key = $('#asw-key').val().trim();
     if (!url) {
-        toastr.error('请先填 API URL', TITLE);
+        toastr.error('Please enter API URL first', TITLE);
         return;
     }
     const btn = $('#asw-fetch');
     const old = btn.text();
-    btn.text('获取中...').prop('disabled', true);
+    btn.text('Fetching...').prop('disabled', true);
     try {
         if (key) {
             if (fetchKeyCache.value !== key) {
-                const id = await writeSecret(SECRET_KEYS.CUSTOM, key, 'ASW: 获取模型');
+                const id = await writeSecret(SECRET_KEYS.CUSTOM, key, 'ASW: Fetch Models');
                 fetchKeyCache = { value: key, id };
             } else if (fetchKeyCache.id && rotateSecret) {
                 await rotateSecret(SECRET_KEYS.CUSTOM, fetchKeyCache.id);
@@ -163,13 +175,13 @@ async function fetchModels() {
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        if (data.error || !Array.isArray(data.data)) throw new Error('连接失败，检查URL和密钥');
+        if (data.error || !Array.isArray(data.data)) throw new Error('Connection failed, check URL and key');
         const models = data.data.map(m => m.id).sort((a, b) => a.localeCompare(b));
-        const sel = $('#asw-model-select').empty().append($('<option>').val('').text('选择模型...'));
+        const sel = $('#asw-model-select').empty().append($('<option>').val('').text('Select model...'));
         models.forEach(id => sel.append($('<option>').val(id).text(id)));
-        toastr.success(`获取到 ${models.length} 个模型`, TITLE);
+        toastr.success(`Fetched ${models.length} models`, TITLE);
     } catch (e) {
-        toastr.error(`获取失败: ${e.message}`, TITLE);
+        toastr.error(`Fetch failed: ${e.message}`, TITLE);
     } finally {
         btn.text(old).prop('disabled', false);
     }
@@ -180,7 +192,7 @@ function clearForm() {
     $('#asw-name, #asw-group, #asw-url, #asw-key, #asw-model').val('');
     resetModelSelect();
     editingId = null;
-    $('#asw-save').text('保存配置');
+    $('#asw-save').text('Save Config');
     $('#asw-cancel').hide();
 }
 
@@ -191,8 +203,8 @@ function saveConfig() {
     const key = $('#asw-key').val().trim();
     const model = $('#asw-model').val().trim();
 
-    if (!name) return toastr.error('请输入配置名称', TITLE);
-    if (!url) return toastr.error('请输入API URL', TITLE);
+    if (!name) return toastr.error('Please enter a config name', TITLE);
+    if (!url) return toastr.error('Please enter an API URL', TITLE);
 
     const list = S().configs;
     if (editingId) {
@@ -201,11 +213,11 @@ function saveConfig() {
             const keyChanged = old.key !== key;
             Object.assign(old, { name, group, url, key, model });
             if (keyChanged) old.secretId = undefined;
-            toastr.success(`已更新: ${name}`, TITLE);
+            toastr.success(`Updated: ${name}`, TITLE);
         }
     } else {
         list.push({ id: uid(), name, group, url, key, model });
-        toastr.success(`已保存: ${name}`, TITLE);
+        toastr.success(`Saved: ${name}`, TITLE);
     }
     saveSettingsDebounced();
     clearForm();
@@ -224,7 +236,7 @@ function editConfig(id) {
     $('#asw-model').val(c.model || '');
     resetModelSelect();
     editingId = id;
-    $('#asw-save').text('更新配置');
+    $('#asw-save').text('Update Config');
     $('#asw-cancel').show();
     $('#asw-name')[0].scrollIntoView({ behavior: 'smooth' });
 }
@@ -232,7 +244,7 @@ function editConfig(id) {
 function deleteConfig(id) {
     const c = S().configs.find(x => x.id === id);
     if (!c) return;
-    if (!confirm(`确定删除 "${c.name}" 吗？`)) return;
+    if (!confirm(`Delete "${c.name}"?`)) return;
     S().configs = S().configs.filter(x => x.id !== id);
     if (S().lastId === id) S().lastId = null;
     saveSettingsDebounced();
@@ -246,12 +258,12 @@ function renderList() {
     const box = $('#asw-list').empty();
     const cfgs = S().configs;
     if (!cfgs.length) {
-        box.append($('<div class="asw-empty">').text('暂无保存的配置'));
+        box.append($('<div class="asw-empty">').text('No saved configs yet'));
         return;
     }
     const groups = {};
     cfgs.forEach(c => {
-        const g = c.group || '未分组';
+        const g = c.group || 'Ungrouped';
         if (!groups[g]) groups[g] = [];
         groups[g].push(c);
     });
@@ -266,11 +278,11 @@ function renderList() {
             const item = $('<div class="asw-item">').toggleClass('asw-current', c.id === S().lastId);
             const info = $('<div class="asw-info">')
                 .append($('<div class="asw-name">').text(c.name))
-                .append($('<div class="asw-model">').text(c.model ? `首选模型: ${c.model}` : '未设置模型'));
+                .append($('<div class="asw-model">').text(c.model ? `Preferred model: ${c.model}` : 'No model set'));
             const acts = $('<div class="asw-actions">')
-                .append($('<button class="menu_button asw-apply">').attr('data-id', c.id).text('应用'))
-                .append($('<button class="menu_button asw-edit">').attr('data-id', c.id).text('编辑'))
-                .append($('<button class="menu_button asw-del">').attr('data-id', c.id).text('删除'));
+                .append($('<button class="menu_button asw-apply">').attr('data-id', c.id).text('Apply'))
+                .append($('<button class="menu_button asw-edit">').attr('data-id', c.id).text('Edit'))
+                .append($('<button class="menu_button asw-del">').attr('data-id', c.id).text('Delete'));
             body.append(item.append(info, acts));
         });
         box.append(head, body);
@@ -313,7 +325,7 @@ function renderDrawer() {
         const listBox = drawer.find('#asw-drawer-list').empty();
         const cfgs = S().configs;
         if (!cfgs.length) {
-            listBox.append($('<div class="asw-empty">').text('暂无配置，点击右上角 + 添加'));
+            listBox.append($('<div class="asw-empty">').text('No configs yet, tap + to add'));
         } else {
             cfgs.forEach(c => {
                 const isCur = c.id === S().lastId;
@@ -321,10 +333,10 @@ function renderDrawer() {
                 const badge = $('<div class="asw-card-badge">').text(getFirstChar(c.name));
                 const meta = $('<div class="asw-card-meta">')
                     .append($('<div class="asw-card-title">').text(c.name))
-                    .append($('<div class="asw-card-sub">').text(c.model ? `首选模型: ${c.model}` : (c.url || '未设置模型')));
+                    .append($('<div class="asw-card-sub">').text(c.model ? `Preferred model: ${c.model}` : (c.url || 'No model set')));
                 const applyBtn = $('<button class="menu_button asw-drawer-apply">')
                     .attr('data-id', c.id)
-                    .text(isCur ? '当前使用中 · 重新应用' : '应用');
+                    .text(isCur ? 'Active · Re-apply' : 'Apply');
                 card.append(badge, meta, applyBtn);
                 listBox.append(card);
             });
@@ -348,10 +360,10 @@ function createDrawerUI() {
                 <b>${TITLE}</b>
             </div>
             <div class="asw-drawer-actions">
-                <button type="button" id="asw-drawer-to-main" class="asw-icon-btn" title="配置列表"><i class="fa-solid fa-list"></i></button>
-                <button type="button" id="asw-drawer-to-form" class="asw-icon-btn" title="新增配置"><i class="fa-solid fa-plus"></i></button>
-                <button type="button" id="asw-drawer-to-settings" class="asw-icon-btn" title="设置"><i class="fa-solid fa-sliders"></i></button>
-                <button type="button" id="asw-drawer-close" class="asw-icon-btn" title="关闭"><i class="fa-solid fa-xmark"></i></button>
+                <button type="button" id="asw-drawer-to-main" class="asw-icon-btn" title="Configs"><i class="fa-solid fa-list"></i></button>
+                <button type="button" id="asw-drawer-to-form" class="asw-icon-btn" title="Add Config"><i class="fa-solid fa-plus"></i></button>
+                <button type="button" id="asw-drawer-to-settings" class="asw-icon-btn" title="Settings"><i class="fa-solid fa-sliders"></i></button>
+                <button type="button" id="asw-drawer-close" class="asw-icon-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
             </div>
         </div>
         <div class="asw-drawer-body">
@@ -360,27 +372,27 @@ function createDrawerUI() {
             </div>
             <div class="asw-drawer-view" data-view="form" style="display:none;">
                 <div class="flex-container flexFlowColumn flexGap5">
-                    <input type="text" id="asw-qd-name" class="text_pole" placeholder="配置名称 (例如: OpenAI GPT-4)">
-                    <input type="text" id="asw-qd-group" class="text_pole" placeholder="分组名称 (可选)">
-                    <input type="text" id="asw-qd-url" class="text_pole" placeholder="Custom API URL (例如: https://api.openai.com/v1)">
-                    <input type="password" id="asw-qd-key" class="text_pole" placeholder="Custom API密钥 (可选)">
-                    <input type="text" id="asw-qd-model" class="text_pole" placeholder="首选模型 (可选)">
-                    <button type="button" id="asw-qd-save" class="menu_button">保存配置</button>
+                    <input type="text" id="asw-qd-name" class="text_pole" placeholder="Config Name (e.g. OpenAI GPT-4)">
+                    <input type="text" id="asw-qd-group" class="text_pole" placeholder="Group (optional)">
+                    <input type="text" id="asw-qd-url" class="text_pole" placeholder="Custom API URL (e.g. https://api.openai.com/v1)">
+                    <input type="password" id="asw-qd-key" class="text_pole" placeholder="Custom API Key (optional)">
+                    <input type="text" id="asw-qd-model" class="text_pole" placeholder="Preferred Model (optional)">
+                    <button type="button" id="asw-qd-save" class="menu_button">Save Config</button>
                 </div>
             </div>
             <div class="asw-drawer-view" data-view="settings" style="display:none;">
                 <div class="asw-setting-block">
-                    <div class="asw-setting-label">外观主题</div>
+                    <div class="asw-setting-label">Theme</div>
                     <div class="asw-theme-group">
-                        <button type="button" class="menu_button asw-theme-btn" data-theme="light"><i class="fa-solid fa-sun"></i> 日间</button>
-                        <button type="button" class="menu_button asw-theme-btn" data-theme="dark"><i class="fa-solid fa-moon"></i> 夜间</button>
-                        <button type="button" class="menu_button asw-theme-btn" data-theme="follow"><i class="fa-solid fa-circle-half-stroke"></i> 跟随酒馆</button>
+                        <button type="button" class="menu_button asw-theme-btn" data-theme="light"><i class="fa-solid fa-sun"></i> Light</button>
+                        <button type="button" class="menu_button asw-theme-btn" data-theme="dark"><i class="fa-solid fa-moon"></i> Dark</button>
+                        <button type="button" class="menu_button asw-theme-btn" data-theme="follow"><i class="fa-solid fa-circle-half-stroke"></i> Follow Tavern</button>
                     </div>
                 </div>
                 <div class="asw-setting-block">
                     <label class="checkbox_label">
                         <input type="checkbox" id="asw-drawer-ball-toggle">
-                        <span>显示悬浮球（侧边贴边，点击打开面板）</span>
+                        <span>Show Floating Button (edge-docked, tap to open)</span>
                     </label>
                 </div>
             </div>
@@ -406,7 +418,6 @@ function mountWandMenuEntry() {
         return;
     }
 
-    // 若魔法棒菜单尚未挂载，监听其展开时再补挂
     const btn = $('#extensionsMenuButton');
     if (btn.length) {
         btn.on('click.aswWand', () => {
@@ -425,7 +436,7 @@ function updateBallLabel() {
     if (!ball.length) return;
     const cur = S().configs.find(x => x.id === S().lastId);
     ball.text(cur ? getFirstChar(cur.name) : 'A');
-    ball.attr('title', cur ? `${TITLE} · 当前: ${cur.name}` : TITLE);
+    ball.attr('title', cur ? `${TITLE} · ${cur.name}` : TITLE);
 }
 
 function placeBallAt(x, y, snapEdge) {
@@ -523,23 +534,23 @@ function createUI() {
             </div>
             <div class="inline-drawer-content">
                 <div class="asw-section">
-                    <h4>添加新配置</h4>
+                    <h4>Add Config</h4>
                     <div class="flex-container flexFlowColumn flexGap5">
-                        <input type="text" id="asw-name" class="text_pole" placeholder="配置名称 (例如: OpenAI GPT-4)">
-                        <input type="text" id="asw-group" class="text_pole" placeholder="分组名称 (可选，例如: 工作用)">
-                        <input type="text" id="asw-url" class="text_pole" placeholder="Custom API URL (例如: https://api.openai.com/v1)">
-                        <input type="password" id="asw-key" class="text_pole" placeholder="Custom API密钥 (可选)">
-                        <input type="text" id="asw-model" class="text_pole" placeholder="首选模型 (可选，例如: gpt-4)">
+                        <input type="text" id="asw-name" class="text_pole" placeholder="Config Name (e.g. OpenAI GPT-4)">
+                        <input type="text" id="asw-group" class="text_pole" placeholder="Group (optional, e.g. Work)">
+                        <input type="text" id="asw-url" class="text_pole" placeholder="Custom API URL (e.g. https://api.openai.com/v1)">
+                        <input type="password" id="asw-key" class="text_pole" placeholder="Custom API Key (optional)">
+                        <input type="text" id="asw-model" class="text_pole" placeholder="Preferred Model (optional, e.g. gpt-4)">
                         <select id="asw-model-select" class="text_pole"></select>
                         <div class="asw-btn-row">
-                            <button id="asw-fetch" class="menu_button">获取模型</button>
-                            <button id="asw-save" class="menu_button">保存配置</button>
+                            <button id="asw-fetch" class="menu_button">Fetch Models</button>
+                            <button id="asw-save" class="menu_button">Save Config</button>
                         </div>
-                        <button id="asw-cancel" class="menu_button" style="display:none;">取消编辑</button>
+                        <button id="asw-cancel" class="menu_button" style="display:none;">Cancel Edit</button>
                     </div>
                 </div>
                 <div class="asw-section">
-                    <h4>已保存的配置</h4>
+                    <h4>Saved Configs</h4>
                     <div id="asw-list"></div>
                 </div>
             </div>
@@ -554,7 +565,7 @@ function createUI() {
     } else if ($('#extensions_settings2').length) {
         $('#extensions_settings2').append(html);
     } else {
-        console.error('[ASW] 找不到放置界面的位置');
+        console.error('[ASW] Target container not found');
     }
     resetModelSelect();
 }
@@ -579,19 +590,19 @@ function renderUpdateStatus() {
 
     dot.removeClass('asw-dot-green asw-dot-red');
     if (!updateState.checked) {
-        text.text('未检查');
-        btn.text('检查更新').removeClass('asw-has-update');
+        text.text('Not checked');
+        btn.text('Check Update').removeClass('asw-has-update');
         return;
     }
 
     if (updateState.hasUpdate) {
         dot.addClass('asw-dot-red');
-        text.text(`有新版本 ${updateState.remote}`);
-        btn.text('更新').addClass('asw-has-update');
+        text.text(`New version ${updateState.remote}`);
+        btn.text('Update').addClass('asw-has-update');
     } else {
         dot.addClass('asw-dot-green');
-        text.text('已是最新版本');
-        btn.text('检查更新').removeClass('asw-has-update');
+        text.text('Up to date');
+        btn.text('Check Update').removeClass('asw-has-update');
     }
 }
 
@@ -612,10 +623,10 @@ async function doUpdate() {
             body: JSON.stringify({ extensionName: FOLDER, global: true }),
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        toastr.success('更新完成', TITLE);
-        if (confirm('更新完成，现在刷新页面吗？')) location.reload();
+        toastr.success('Update complete', TITLE);
+        if (confirm('Update complete. Reload page now?')) location.reload();
     } catch (e) {
-        toastr.warning('自动更新失败，请在扩展页卸载后重新安装', TITLE);
+        toastr.warning('Auto-update failed. Please uninstall and reinstall in Extensions.', TITLE);
     }
 }
 
@@ -630,10 +641,10 @@ async function checkUpdate(manual) {
         };
         renderUpdateStatus();
         if (manual && !updateState.hasUpdate) {
-            toastr.info(`已是最新版本 ${local}`, TITLE);
+            toastr.info(`Already on latest version ${local}`, TITLE);
         }
     } catch (e) {
-        if (manual) toastr.error(`检查更新失败: ${e.message}`, TITLE);
+        if (manual) toastr.error(`Update check failed: ${e.message}`, TITLE);
     }
 }
 
@@ -648,9 +659,9 @@ async function mountUpdateUI() {
             $('<div class="asw-update-left">')
                 .append($('<span class="asw-ver">').text(currentVersion ? `v${currentVersion}` : ''))
                 .append($('<span class="asw-status-dot">'))
-                .append($('<span class="asw-status-text">').text('未检查'))
+                .append($('<span class="asw-status-text">').text('Not checked'))
         )
-        .append($('<button type="button" id="asw-update-action-btn" class="menu_button">').text('检查更新'));
+        .append($('<button type="button" id="asw-update-action-btn" class="menu_button">').text('Check Update'));
 
     $('.asw_settings > .inline-drawer > .inline-drawer-content').prepend(row);
     renderUpdateStatus();
@@ -707,13 +718,13 @@ function bindEvents() {
         const url = $('#asw-qd-url').val().trim();
         const key = $('#asw-qd-key').val().trim();
         const model = $('#asw-qd-model').val().trim();
-        if (!name) return toastr.error('请输入配置名称', TITLE);
-        if (!url) return toastr.error('请输入API URL', TITLE);
+        if (!name) return toastr.error('Please enter a config name', TITLE);
+        if (!url) return toastr.error('Please enter an API URL', TITLE);
 
         S().configs.push({ id: uid(), name, group, url, key, model });
         saveSettingsDebounced();
         $('#asw-qd-name, #asw-qd-group, #asw-qd-url, #asw-qd-key, #asw-qd-model').val('');
-        toastr.success(`已保存: ${name}`, TITLE);
+        toastr.success(`Saved: ${name}`, TITLE);
         renderList();
         openDrawer('main');
     });
