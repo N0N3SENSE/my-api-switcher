@@ -1,0 +1,79 @@
+/* 列表 */
+.asw-section { margin-bottom: 14px; }
+.asw-section h4 { margin: 8px 0; }
+.asw-empty { opacity: 0.6; padding: 8px 0; }
+
+.asw-group-head {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 10px 12px;
+    margin-top: 8px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 10px;
+    cursor: pointer;
+    user-select: none;
+}
+.asw-count { opacity: 0.6; }
+
+.asw-item {
+    margin: 8px 0;
+    padding: 12px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-left: 4px solid var(--SmartThemeBorderColor);
+    border-radius: 10px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+.asw-item.asw-current {
+    border-left-color: var(--SmartThemeQuoteColor, #4caf50);
+}
+.asw-name { font-weight: bold; margin-bottom: 4px; }
+.asw-model { font-size: 0.85em; opacity: 0.7; margin-bottom: 8px; }
+.asw-actions { display: flex; gap: 6px; }
+.asw-actions .menu_button { flex: 1; margin: 0; }
+
+/* 悬浮球 */
+#asw-ball {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--SmartThemeBlurTintColor, #333);
+    color: var(--SmartThemeBodyColor, #fff);
+    border: 1px solid var(--SmartThemeBorderColor);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
+    opacity: 0.85;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+}
+#asw-ball:active { opacity: 1; }
+
+/* 悬浮球弹出菜单 */
+#asw-menu {
+    min-width: 160px;
+    max-width: 240px;
+    max-height: 50vh;
+    overflow-y: auto;
+    padding: 6px;
+    background: var(--SmartThemeBlurTintColor, #333);
+    color: var(--SmartThemeBodyColor, #fff);
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 12px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+.asw-menu-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+}
+.asw-menu-item:active { background: rgba(128, 128, 128, 0.25); }
+.asw-menu-item.asw-current { font-weight: bold; border-left: 3px solid var(--SmartThemeQuoteColor, #4caf50); }
+.asw-menu-group { font-size: 0.75em; opacity: 0.6; }
+.asw-menu-empty { padding: 10px 12px; opacity: 0.6; }
