@@ -13,6 +13,7 @@ const MODULE = 'my_api_switcher';
 const TITLE = 'API切换器';
 let editingId = null;
 let fetchKeyCache = { value: '', id: null };
+let topBannerTimer = null;
 
 function S() { return extension_settings[MODULE]; }
 
@@ -22,13 +23,29 @@ function initSettings() {
     if (!Array.isArray(s.configs)) s.configs = [];
     if (!s.collapsed) s.collapsed = {};
     if (s.autoConnect === undefined) s.autoConnect = true;
-    if (s.showBall === undefined) s.showBall = true;
     if (s.autoUpdateCheck === undefined) s.autoUpdateCheck = true;
     if (s.lastId === undefined) s.lastId = null;
+
+    // 清理旧版悬浮球遗留字段
+    delete s.showBall;
+    delete s.ballPos;
 }
 
 function uid() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+// ---------- 顶部提示条 ----------
+function showTopBanner(message) {
+    let banner = $('#asw-top-banner');
+    if (!banner.length) {
+        banner = $('<div id="asw-top-banner" role="status" aria-live="polite"></div>').appendTo('body');
+    }
+    clearTimeout(topBannerTimer);
+    banner.text(message).removeClass('asw-banner-hide').addClass('asw-banner-show');
+    topBannerTimer = setTimeout(() => {
+        banner.removeClass('asw-banner-show').addClass('asw-banner-hide');
+    }, 3000);
 }
 
 // ---------- 密钥 ----------
@@ -85,7 +102,11 @@ async function applyConfig(cfg, quiet) {
             setTimeout(() => setModel(cfg.model), 5000);
         }
 
-        if (!quiet) toastr.success(`正在连接: ${cfg.name}`, TITLE);
+        if (!quiet) {
+            toastr.success(`正在连接: ${cfg.name}`, TITLE);
+            const appliedLabel = cfg.model ? `应用模型成功：${cfg.model}` : `应用配置成功：${cfg.name}`;
+            showTopBanner(appliedLabel);
+        }
         renderList();
     } catch (e) {
         console.error('[ASW] 应用失败', e);
@@ -240,112 +261,6 @@ function renderList() {
     });
 }
 
-// ---------- 悬浮球 ----------
-function renderMenu() {
-    const menu = $('#asw-menu').empty();
-    const cfgs = S().configs;
-    if (!cfgs.length) {
-        menu.append($('<div class="asw-menu-empty">').text('还没有配置'));
-        return;
-    }
-    cfgs.forEach(c => {
-        const ch = (Array.from((c.name || '').trim())[0] || '?').toUpperCase();
-        menu.append(
-            $('<div class="asw-menu-item">')
-                .attr({ 'data-id': c.id, title: c.name })
-                .toggleClass('asw-current', c.id === S().lastId)
-                .text(ch)
-        );
-    });
-}
-
-function placeBall(x, y) {
-    const ball = $('#asw-ball');
-    const w = ball.outerWidth() || 44;
-    const h = ball.outerHeight() || 44;
-    const nx = Math.max(0, Math.min(window.innerWidth - w, x));
-    const ny = Math.max(0, Math.min(window.innerHeight - h, y));
-    ball.css({ left: nx + 'px', top: ny + 'px' });
-    return { x: nx, y: ny };
-}
-
-function openMenu() {
-    renderMenu();
-    const ball = $('#asw-ball');
-    const menu = $('#asw-menu');
-    const r = ball[0].getBoundingClientRect();
-    menu.css({ visibility: 'hidden' }).show();
-    const mw = menu.outerWidth();
-    const mh = menu.outerHeight();
-    const left = Math.min(Math.max(8, r.left + r.width / 2 - mw / 2), window.innerWidth - mw - 8);
-    let top = r.bottom + 8;
-    if (top + mh > window.innerHeight - 8) top = Math.max(8, r.top - mh - 8);
-    menu.css({ left: left + 'px', top: top + 'px', visibility: 'visible' });
-}
-
-function buildBall() {
-    $('#asw-ball, #asw-menu').remove();
-    $(document).off('pointerdown.asw');
-    if (!S().showBall) return;
-
-    const ball = $('<div id="asw-ball" title="切换API"><i class="fa-solid fa-plug"></i></div>')
-        .css({ position: 'fixed', 'touch-action': 'none', 'z-index': 99999 })
-        .appendTo('body');
-    $('<div id="asw-menu"></div>')
-        .css({ position: 'fixed', 'z-index': 99999 })
-        .hide()
-        .appendTo('body');
-
-    const pos = S().ballPos || { x: window.innerWidth - 60, y: Math.round(window.innerHeight * 0.6) };
-    placeBall(pos.x, pos.y);
-
-    let startX = 0, startY = 0, origX = 0, origY = 0, moved = false, dragging = false;
-
-    ball.on('pointerdown', e => {
-        dragging = true;
-        moved = false;
-        startX = e.clientX;
-        startY = e.clientY;
-        const r = ball[0].getBoundingClientRect();
-        origX = r.left;
-        origY = r.top;
-        ball[0].setPointerCapture(e.pointerId);
-    });
-    ball.on('pointermove', e => {
-        if (!dragging) return;
-        const dx = e.clientX - startX;
-        const dy = e.clientY - startY;
-        if (!moved && Math.abs(dx) + Math.abs(dy) > 6) moved = true;
-        if (moved) {
-            $('#asw-menu').hide();
-            placeBall(origX + dx, origY + dy);
-        }
-    });
-    ball.on('pointerup pointercancel', () => {
-        if (!dragging) return;
-        dragging = false;
-        if (moved) {
-            const r = ball[0].getBoundingClientRect();
-            S().ballPos = { x: r.left, y: r.top };
-            saveSettingsDebounced();
-        } else if ($('#asw-menu').is(':visible')) {
-            $('#asw-menu').hide();
-        } else {
-            openMenu();
-        }
-    });
-
-    $('#asw-menu').on('click', '.asw-menu-item', async function () {
-        const c = S().configs.find(x => x.id === $(this).attr('data-id'));
-        $('#asw-menu').hide();
-        if (c) await applyConfig(c);
-    });
-
-    $(document).on('pointerdown.asw', e => {
-        if (!$(e.target).closest('#asw-ball, #asw-menu').length) $('#asw-menu').hide();
-    });
-}
-
 // ---------- 界面 ----------
 function createUI() {
     const html = `
@@ -379,7 +294,6 @@ function createUI() {
                     </div>
                     <div class="inline-drawer-content">
                         <label class="checkbox_label"><input type="checkbox" id="asw-auto"><span>启动时自动连接上次用的配置</span></label>
-                        <label class="checkbox_label"><input type="checkbox" id="asw-ball-toggle"><span>显示悬浮球</span></label>
                         <label class="checkbox_label"><input type="checkbox" id="asw-upd-auto"><span>启动时自动检查更新</span></label>
                     </div>
                 </div>
@@ -403,7 +317,6 @@ function createUI() {
     }
     resetModelSelect();
     $('#asw-auto').prop('checked', !!S().autoConnect);
-    $('#asw-ball-toggle').prop('checked', !!S().showBall);
     $('#asw-upd-auto').prop('checked', !!S().autoUpdateCheck);
 }
 
@@ -420,11 +333,6 @@ function bindEvents() {
     $(document).on('change', '#asw-auto', function () {
         S().autoConnect = $(this).prop('checked');
         saveSettingsDebounced();
-    });
-    $(document).on('change', '#asw-ball-toggle', function () {
-        S().showBall = $(this).prop('checked');
-        saveSettingsDebounced();
-        buildBall();
     });
     $(document).on('change', '#asw-upd-auto', function () {
         S().autoUpdateCheck = $(this).prop('checked');
@@ -461,6 +369,16 @@ function cmpVer(a, b) {
     return 0;
 }
 
+function setUpdateStatus(hasUpdate) {
+    const btn = $('#asw-update-btn');
+    btn.removeClass('asw-has-update asw-up-to-date');
+    if (hasUpdate === true) {
+        btn.addClass('asw-has-update');
+    } else if (hasUpdate === false) {
+        btn.addClass('asw-up-to-date');
+    }
+}
+
 async function getVersions() {
     const lr = await fetch(new URL('manifest.json', import.meta.url) + '?t=' + Date.now(), { cache: 'no-cache' });
     const local = await lr.json();
@@ -489,14 +407,17 @@ async function checkUpdate(manual) {
     try {
         const { local, remote } = await getVersions();
         if (cmpVer(remote, local) > 0) {
-            $('#asw-update-btn').addClass('asw-has-update');
+            setUpdateStatus(true);
             if (manual) {
                 if (confirm(`发现新版本 ${remote}（当前 ${local}），现在更新吗？`)) await doUpdate();
             } else {
                 toastr.info(`有新版本 ${remote}，在API切换器里点检查更新`, TITLE);
             }
-        } else if (manual) {
-            toastr.info(`已是最新版本 ${local}`, TITLE);
+        } else {
+            setUpdateStatus(false);
+            if (manual) {
+                toastr.info(`已是最新版本 ${local}`, TITLE);
+            }
         }
     } catch (e) {
         if (manual) toastr.error(`检查更新失败: ${e.message}`, TITLE);
@@ -525,7 +446,6 @@ jQuery(async () => {
     mountUpdateUI();
     bindEvents();
     renderList();
-    buildBall();
 
     setTimeout(() => {
         const s = S();
