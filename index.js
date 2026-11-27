@@ -23,6 +23,7 @@ function initSettings() {
     if (!s.collapsed) s.collapsed = {};
     if (s.autoConnect === undefined) s.autoConnect = true;
     if (s.showBall === undefined) s.showBall = true;
+    if (s.autoUpdateCheck === undefined) s.autoUpdateCheck = true;
     if (s.lastId === undefined) s.lastId = null;
 }
 
@@ -79,7 +80,6 @@ async function applyConfig(cfg, quiet) {
 
         $('#api_button_openai').trigger('click');
 
-        // 连接后酒馆可能会重置模型，隔一会再设一次
         if (cfg.model) {
             setTimeout(() => setModel(cfg.model), 2000);
             setTimeout(() => setModel(cfg.model), 5000);
@@ -94,6 +94,10 @@ async function applyConfig(cfg, quiet) {
 }
 
 // ---------- 获取模型 ----------
+function resetModelSelect() {
+    $('#asw-model-select').empty().append($('<option>').val('').text('选择模型（先点获取模型）'));
+}
+
 async function fetchModels() {
     const url = $('#asw-url').val().trim();
     const key = $('#asw-key').val().trim();
@@ -130,7 +134,6 @@ async function fetchModels() {
         const models = data.data.map(m => m.id).sort((a, b) => a.localeCompare(b));
         const sel = $('#asw-model-select').empty().append($('<option>').val('').text('选择模型...'));
         models.forEach(id => sel.append($('<option>').val(id).text(id)));
-        sel.show();
         toastr.success(`获取到 ${models.length} 个模型`, TITLE);
     } catch (e) {
         toastr.error(`获取失败: ${e.message}`, TITLE);
@@ -142,7 +145,7 @@ async function fetchModels() {
 // ---------- 保存/编辑/删除 ----------
 function clearForm() {
     $('#asw-name, #asw-group, #asw-url, #asw-key, #asw-model').val('');
-    $('#asw-model-select').hide();
+    resetModelSelect();
     editingId = null;
     $('#asw-save').text('保存配置');
     $('#asw-cancel').hide();
@@ -184,7 +187,7 @@ function editConfig(id) {
     $('#asw-url').val(c.url || '');
     $('#asw-key').val(c.key || '');
     $('#asw-model').val(c.model || '');
-    $('#asw-model-select').hide();
+    resetModelSelect();
     editingId = id;
     $('#asw-save').text('更新配置');
     $('#asw-cancel').show();
@@ -242,14 +245,17 @@ function renderMenu() {
     const menu = $('#asw-menu').empty();
     const cfgs = S().configs;
     if (!cfgs.length) {
-        menu.append($('<div class="asw-menu-empty">').text('还没有保存的配置'));
+        menu.append($('<div class="asw-menu-empty">').text('还没有配置'));
         return;
     }
     cfgs.forEach(c => {
-        const row = $('<div class="asw-menu-item">').attr('data-id', c.id).toggleClass('asw-current', c.id === S().lastId);
-        row.append($('<span class="asw-menu-name">').text(c.name));
-        if (c.group) row.append($('<span class="asw-menu-group">').text(c.group));
-        menu.append(row);
+        const ch = (Array.from((c.name || '').trim())[0] || '?').toUpperCase();
+        menu.append(
+            $('<div class="asw-menu-item">')
+                .attr({ 'data-id': c.id, title: c.name })
+                .toggleClass('asw-current', c.id === S().lastId)
+                .text(ch)
+        );
     });
 }
 
@@ -271,7 +277,7 @@ function openMenu() {
     menu.css({ visibility: 'hidden' }).show();
     const mw = menu.outerWidth();
     const mh = menu.outerHeight();
-    let left = Math.min(Math.max(8, r.left), window.innerWidth - mw - 8);
+    const left = Math.min(Math.max(8, r.left + r.width / 2 - mw / 2), window.innerWidth - mw - 8);
     let top = r.bottom + 8;
     if (top + mh > window.innerHeight - 8) top = Math.max(8, r.top - mh - 8);
     menu.css({ left: left + 'px', top: top + 'px', visibility: 'visible' });
@@ -358,16 +364,24 @@ function createUI() {
                         <input type="text" id="asw-url" class="text_pole" placeholder="Custom API URL (例如: https://api.openai.com/v1)">
                         <input type="password" id="asw-key" class="text_pole" placeholder="Custom API密钥 (可选)">
                         <input type="text" id="asw-model" class="text_pole" placeholder="首选模型 (可选，例如: gpt-4)">
-                        <button id="asw-fetch" class="menu_button">获取模型</button>
-                        <select id="asw-model-select" class="text_pole" style="display:none;"></select>
-                        <button id="asw-save" class="menu_button">保存配置</button>
+                        <select id="asw-model-select" class="text_pole"></select>
+                        <div class="asw-btn-row">
+                            <button id="asw-fetch" class="menu_button">获取模型</button>
+                            <button id="asw-save" class="menu_button">保存配置</button>
+                        </div>
                         <button id="asw-cancel" class="menu_button" style="display:none;">取消编辑</button>
                     </div>
                 </div>
-                <div class="asw-section">
-                    <h4>选项</h4>
-                    <label class="checkbox_label"><input type="checkbox" id="asw-auto"><span>启动时自动连接上次用的配置</span></label>
-                    <label class="checkbox_label"><input type="checkbox" id="asw-ball-toggle"><span>显示悬浮球</span></label>
+                <div class="inline-drawer asw-section">
+                    <div class="inline-drawer-toggle inline-drawer-header">
+                        <b>选项</b>
+                        <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+                    </div>
+                    <div class="inline-drawer-content">
+                        <label class="checkbox_label"><input type="checkbox" id="asw-auto"><span>启动时自动连接上次用的配置</span></label>
+                        <label class="checkbox_label"><input type="checkbox" id="asw-ball-toggle"><span>显示悬浮球</span></label>
+                        <label class="checkbox_label"><input type="checkbox" id="asw-upd-auto"><span>启动时自动检查更新</span></label>
+                    </div>
                 </div>
                 <div class="asw-section">
                     <h4>已保存的配置</h4>
@@ -387,8 +401,10 @@ function createUI() {
     } else {
         console.error('[ASW] 找不到放置界面的位置');
     }
+    resetModelSelect();
     $('#asw-auto').prop('checked', !!S().autoConnect);
     $('#asw-ball-toggle').prop('checked', !!S().showBall);
+    $('#asw-upd-auto').prop('checked', !!S().autoUpdateCheck);
 }
 
 function bindEvents() {
@@ -410,6 +426,10 @@ function bindEvents() {
         saveSettingsDebounced();
         buildBall();
     });
+    $(document).on('change', '#asw-upd-auto', function () {
+        S().autoUpdateCheck = $(this).prop('checked');
+        saveSettingsDebounced();
+    });
 
     $(document).on('click', '.asw-group-head', function () {
         const g = $(this).attr('data-group');
@@ -424,12 +444,85 @@ function bindEvents() {
     });
     $(document).on('click', '.asw-edit', function () { editConfig($(this).attr('data-id')); });
     $(document).on('click', '.asw-del', function () { deleteConfig($(this).attr('data-id')); });
+    $(document).on('click', '#asw-update-btn', () => checkUpdate(true));
+}
+
+// ---------- 检查更新 ----------
+const REPO = 'N0N3SENSE/my-api-switcher';
+const FOLDER = new URL(import.meta.url).pathname.split('/').slice(-2, -1)[0];
+
+function cmpVer(a, b) {
+    const x = String(a).split('.').map(Number);
+    const y = String(b).split('.').map(Number);
+    for (let i = 0; i < Math.max(x.length, y.length); i++) {
+        const d = (x[i] || 0) - (y[i] || 0);
+        if (d) return d > 0 ? 1 : -1;
+    }
+    return 0;
+}
+
+async function getVersions() {
+    const lr = await fetch(new URL('manifest.json', import.meta.url) + '?t=' + Date.now(), { cache: 'no-cache' });
+    const local = await lr.json();
+    const rr = await fetch(`https://raw.githubusercontent.com/${REPO}/main/manifest.json?t=${Date.now()}`, { cache: 'no-cache' });
+    if (!rr.ok) throw new Error(`HTTP ${rr.status}`);
+    const remote = await rr.json();
+    return { local: local.version, remote: remote.version };
+}
+
+async function doUpdate() {
+    try {
+        const res = await fetch('/api/extensions/update', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify({ extensionName: FOLDER, global: true }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        toastr.success('更新完成', TITLE);
+        if (confirm('更新完成，现在刷新页面吗？')) location.reload();
+    } catch (e) {
+        toastr.warning('自动更新失败，请在扩展页卸载后重新安装', TITLE);
+    }
+}
+
+async function checkUpdate(manual) {
+    try {
+        const { local, remote } = await getVersions();
+        if (cmpVer(remote, local) > 0) {
+            $('#asw-update-btn').addClass('asw-has-update');
+            if (manual) {
+                if (confirm(`发现新版本 ${remote}（当前 ${local}），现在更新吗？`)) await doUpdate();
+            } else {
+                toastr.info(`有新版本 ${remote}，在API切换器里点检查更新`, TITLE);
+            }
+        } else if (manual) {
+            toastr.info(`已是最新版本 ${local}`, TITLE);
+        }
+    } catch (e) {
+        if (manual) toastr.error(`检查更新失败: ${e.message}`, TITLE);
+    }
+}
+
+async function mountUpdateUI() {
+    let ver = '';
+    try {
+        const r = await fetch(new URL('manifest.json', import.meta.url) + '?t=' + Date.now());
+        ver = (await r.json()).version;
+    } catch (e) { /* 读不到就不显示 */ }
+
+    const row = $('<div class="asw-update-row">')
+        .append($('<span class="asw-ver">').text(ver ? `v${ver}` : ''))
+        .append($('<button id="asw-update-btn" class="menu_button">').text('检查更新'));
+    $('.asw_settings > .inline-drawer > .inline-drawer-content').prepend(row);
+
+    if (S().autoUpdateCheck) setTimeout(() => checkUpdate(false), 6000);
 }
 
 // ---------- 启动 ----------
 jQuery(async () => {
     initSettings();
     createUI();
+    mountUpdateUI();
     bindEvents();
     renderList();
     buildBall();
